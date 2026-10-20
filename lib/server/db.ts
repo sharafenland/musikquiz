@@ -10,7 +10,14 @@ export function db(): Sql {
   if (!g.__mqSql) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL ist nicht gesetzt (siehe README).");
-    g.__mqSql = postgres(url, {
+    g.__mqSql = connect(url);
+  }
+  return g.__mqSql;
+}
+
+function connect(url: string): Sql {
+  try {
+    return postgres(url, {
       // Supabase-Transaction-Pooler (Port 6543) unterstützt keine Prepared Statements
       prepare: false,
       max: Number(process.env.DATABASE_POOL_SIZE ?? 5),
@@ -25,6 +32,11 @@ export function db(): Sql {
         },
       },
     }) as unknown as Sql;
+  } catch {
+    // Den Originalfehler bewusst nicht weiterreichen: er enthält die komplette URL samt Passwort.
+    throw new Error(
+      "DATABASE_URL lässt sich nicht lesen. Häufigste Ursache: Sonderzeichen im Passwort " +
+        "(# @ / ? % :) – Passwort ohne Sonderzeichen setzen oder URL-kodieren (z. B. # → %23).",
+    );
   }
-  return g.__mqSql;
 }
