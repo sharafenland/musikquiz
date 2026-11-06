@@ -279,23 +279,33 @@ function AnswerField({
   const [status, setStatus] = useState<"saved" | "dirty" | "saving">("saved");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef(q.answer);
+  const latest = useRef(q.answer); // aktueller Feldinhalt, auch für laufende Speichervorgänge
+  // Zuletzt vom Server gesehener Wert. Nur wenn sich *der* ändert, kommt etwas Neues vom Server
+  // (z. B. Antwort vom zweiten Handy des Teams). Nicht mit lastSaved vergleichen: Das Team lädt
+  // nach eigenen Antworten nicht neu, q.answer ist dann noch der alte Stand – das hat früher
+  // jede gerade gespeicherte Antwort wieder gelöscht.
+  const lastServer = useRef(q.answer);
 
-  // Serverwert übernehmen, solange lokal nichts Ungespeichertes ansteht
   useEffect(() => {
-    if (status === "saved" && q.answer !== lastSaved.current) {
+    if (q.answer === lastServer.current) return;
+    lastServer.current = q.answer;
+    // Serverwert nur übernehmen, solange lokal nichts Ungespeichertes ansteht
+    if (status === "saved") {
       setValue(q.answer);
+      latest.current = q.answer;
       lastSaved.current = q.answer;
     }
   }, [q.answer, status]);
 
   const save = useMemo(
     () => async (text: string) => {
-      if (text === lastSaved.current) return setStatus("saved");
+      if (text === lastSaved.current) return setStatus(text === latest.current ? "saved" : "dirty");
       setStatus("saving");
       try {
         await api(`/api/team/${hash}/answer`, { method: "PUT", body: { questionId: q.id, text }, teamToken: token });
         lastSaved.current = text;
-        setStatus("saved");
+        // Während des Speicherns weitergetippt? Dann ist der neue Text noch nicht gespeichert.
+        setStatus(text === latest.current ? "saved" : "dirty");
       } catch (e) {
         setStatus("dirty");
         onError((e as Error).message);
@@ -324,6 +334,7 @@ function AnswerField({
         onChange={(e) => {
           const v = e.target.value;
           setValue(v);
+          latest.current = v;
           setStatus("dirty");
           if (timer.current) clearTimeout(timer.current);
           timer.current = setTimeout(() => void save(v), 700);
